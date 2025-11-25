@@ -1,0 +1,27 @@
+package templates
+
+import (
+    "github.com/phasecurve/sway_rm/internal"
+    "github.com/phasecurve/sway_rm/internal/components"
+)
+
+templ Launch(pairState internal.PairState) {
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Sway RM</title>
+        <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    </head>
+    <body>
+        <h1>Sway RM</h1>
+        if pairState == internal.StatePaired {
+            <p>Paired</p>
+        } else if pairState == internal.StateExpired {
+            <p class="warning">Session expired. Please pair again.</p>
+            @components.PairForm()
+        } else if pairState == internal.StateUnpaired {
+            @components.PairForm()
+        }
+  </body>
+  </html>
+}

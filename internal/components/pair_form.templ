@@ -1,0 +1,24 @@
+package components
+
+templ pairFormInput() {
+    <form id="pair-form"
+        hx-post="/api/pair"
+        hx-swap="outerHTML"
+        hx-target="#pair-container">
+        <input type="text" name="short-code" id="short-code" />
+        <button type="submit">Pair</button>
+    </form>
+}
+
+templ PairForm() {
+    <div id="pair-container">
+        @pairFormInput()
+    </div>
+}
+
+templ PairFormWithError(errorMessage string) {
+    <div id="pair-container">
+        <p class="error">{ errorMessage }</p>
+        @pairFormInput()
+    </div>
+}
