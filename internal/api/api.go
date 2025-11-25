@@ -1,7 +1,6 @@
 package api
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -13,8 +12,8 @@ import (
 )
 
 const (
-	API_KEY_COOKIE_NAME = "api-key"
-	SHORT_CODE_FORM_ID  = "short-code"
+	apiKeyCookieName = "api-key"
+	shortCodeFormID  = "short-code"
 )
 
 type ShortCodeGenerator func() string
@@ -27,12 +26,11 @@ type Server struct {
 }
 
 func NewServer(keyStore *security.KeyStore, shortCodeGenerator ShortCodeGenerator, apiCodeGenerator APICodeGenerator) *Server {
-	server := &Server{
+	return &Server{
 		ShortCodeGenerator: shortCodeGenerator,
 		APICodeGenerator:   apiCodeGenerator,
 		KeyStore:           keyStore,
 	}
-	return server
 }
 
 func (s *Server) SetupRoutes(router *gin.Engine) {
@@ -44,7 +42,7 @@ func (s *Server) SetupRoutes(router *gin.Engine) {
 func (s *Server) getRoot(c *gin.Context) {
 	state := internal.StateUnpaired
 	for _, cookie := range c.Request.Cookies() {
-		if cookie.Name == API_KEY_COOKIE_NAME {
+		if cookie.Name == apiKeyCookieName {
 			valid := s.KeyStore.ValidateAPIKey(cookie.Value)
 			if valid {
 				state = internal.StatePaired
@@ -63,9 +61,7 @@ func (s *Server) getStatus(c *gin.Context) {
 }
 
 func (s *Server) postPair(c *gin.Context) {
-	code := c.PostForm(SHORT_CODE_FORM_ID)
-
-	fmt.Printf("Found %s in the form post.\n", code)
+	code := c.PostForm(shortCodeFormID)
 
 	if code != "123456" {
 		c.Header("Content-Type", "text/html")
@@ -76,9 +72,7 @@ func (s *Server) postPair(c *gin.Context) {
 
 	apiKey := s.APICodeGenerator()
 
-	fmt.Printf("Putting %s in the response.\n", apiKey)
-
-	c.SetCookie(API_KEY_COOKIE_NAME, apiKey, 3600, "/", "", false, true)
+	c.SetCookie(apiKeyCookieName, apiKey, 3600, "/", "", false, true)
 	c.Header("Content-Type", "text/html")
 	c.String(http.StatusOK, "<p>Paired</p>")
 }

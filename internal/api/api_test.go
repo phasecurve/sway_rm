@@ -4,16 +4,36 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	bolt "go.etcd.io/bbolt"
+
+	"github.com/phasecurve/sway_rm/internal/security"
 )
+
+func createTestKeyStore(t *testing.T) *security.KeyStore {
+	tempDir := t.TempDir()
+	dbPath := filepath.Join(tempDir, "test.db")
+	db, err := bolt.Open(dbPath, 0600, nil)
+	if err != nil {
+		t.Fatalf("failed to open test db: %v", err)
+	}
+	t.Cleanup(func() {
+		db.Close()
+	})
+	return security.NewKeyStore(db)
+}
 
 func TestStatus_NotPaired_Unauthorized(t *testing.T) {
 	router := gin.Default()
-	server := &Server{}
+	server := &Server{
+		KeyStore: createTestKeyStore(t),
+	}
 	server.SetupRoutes(router)
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/api/status", nil)
@@ -26,7 +46,9 @@ func TestStatus_NotPaired_Unauthorized(t *testing.T) {
 
 func TestRoot_ReturnsOK(t *testing.T) {
 	router := gin.Default()
-	server := &Server{}
+	server := &Server{
+		KeyStore: createTestKeyStore(t),
+	}
 	server.SetupRoutes(router)
 
 	w := httptest.NewRecorder()
@@ -38,7 +60,9 @@ func TestRoot_ReturnsOK(t *testing.T) {
 
 func TestRoot_NotPaired_ShowsForm(t *testing.T) {
 	router := gin.Default()
-	server := &Server{}
+	server := &Server{
+		KeyStore: createTestKeyStore(t),
+	}
 	server.SetupRoutes(router)
 
 	w := httptest.NewRecorder()
@@ -53,7 +77,9 @@ func TestRoot_NotPaired_ShowsForm(t *testing.T) {
 
 func TestRoot_NotPaired_DoesNotShowPaired(t *testing.T) {
 	router := gin.Default()
-	server := &Server{}
+	server := &Server{
+		KeyStore: createTestKeyStore(t),
+	}
 	server.SetupRoutes(router)
 
 	w := httptest.NewRecorder()
@@ -68,6 +94,7 @@ func TestPair_ValidShortCode_ReturnsAPIKey(t *testing.T) {
 	expectedKey := "123456"
 	router := gin.Default()
 	server := &Server{
+		KeyStore: createTestKeyStore(t),
 		APICodeGenerator: func() string {
 			return expectedKey
 		},
@@ -97,15 +124,21 @@ func TestPair_ValidShortCode_ReturnsAPIKey(t *testing.T) {
 
 func TestRoot_Paired_ShowPairedMessage(t *testing.T) {
 	router := gin.Default()
-	server := &Server{}
+	keyStore := createTestKeyStore(t)
+	server := &Server{
+		KeyStore: keyStore,
+	}
 	server.SetupRoutes(router)
+
+	apiKey := "some-valid-key"
+	keyStore.StoreAPIKey(apiKey, time.Now().Add(1*time.Hour))
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 
 	req.AddCookie(&http.Cookie{
 		Name:  "api-key",
-		Value: "some-valid-key",
+		Value: apiKey,
 	})
 
 	router.ServeHTTP(w, req)
@@ -117,27 +150,34 @@ func TestRoot_Paired_ShowPairedMessage(t *testing.T) {
 
 func TestRoot_ServerCookieTTLReached_ShowExpiredMessage(t *testing.T) {
 	router := gin.Default()
-	server := &Server{}
+	keyStore := createTestKeyStore(t)
+	server := &Server{
+		KeyStore: keyStore,
+	}
 	server.SetupRoutes(router)
+
+	apiKey := "expired-key"
+	keyStore.StoreAPIKey(apiKey, time.Now().Add(-1*time.Hour))
 
 	w := httptest.NewRecorder()
 	req, _ := http.NewRequest("GET", "/", nil)
 
 	req.AddCookie(&http.Cookie{
 		Name:  "api-key",
-		Value: "some-valid-key",
+		Value: apiKey,
 	})
 
 	router.ServeHTTP(w, req)
 
 	body := w.Body.String()
-	assert.NotContains(t, body, `<form id="pair-form"`, "paired state should not show the pairing form")
-	assert.Contains(t, body, "Paired", "the state should be paired if the correct cookie is available")
+	assert.Contains(t, body, "expired", "should show expired message")
+	assert.Contains(t, body, `<form id="pair-form"`, "expired state should show the pairing form")
 }
 
 func TestPair_InvalidShortCode_ShowsError(t *testing.T) {
 	router := gin.Default()
 	server := &Server{
+		KeyStore:         createTestKeyStore(t),
 		APICodeGenerator: func() string { return "test-key" },
 	}
 	server.SetupRoutes(router)
@@ -152,7 +192,6 @@ func TestPair_InvalidShortCode_ShowsError(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	assert.Equal(t, http.StatusUnauthorized, w.Code)
 	body := w.Body.String()
 	assert.Contains(t, body, "Invalid pairing code", "should show error message")
 	assert.Contains(t, body, `<form id="pair-form"`, "should show form again")

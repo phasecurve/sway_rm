@@ -2,10 +2,13 @@ module github.com/phasecurve/sway_rm
 
 go 1.24.1
 
-require github.com/stretchr/testify v1.11.1
+require (
+	github.com/a-h/templ v0.3.960
+	github.com/stretchr/testify v1.11.1
+	go.etcd.io/bbolt v1.4.3
+)
 
 require (
-	github.com/a-h/templ v0.3.960 // indirect
 	github.com/bytedance/sonic v1.14.0 // indirect
 	github.com/bytedance/sonic/loader v0.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
