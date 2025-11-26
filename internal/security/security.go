@@ -17,6 +17,12 @@ type APIKey struct {
 	TTL time.Time
 }
 
+type KeyStorer interface {
+	GetAPIKey(apiKey string) (*APIKey, error)
+	ValidateAPIKey(apiKey string) bool
+	StoreAPIKey(apiKey string, expiresAt time.Time) error
+}
+
 type KeyStore struct {
 	db *bolt.DB
 }
@@ -98,6 +104,6 @@ func GenerateShortCode() string {
 func GenerateAPIKey() string {
 	bytes := make([]byte, 6)
 	rand.Read(bytes)
-	shortCode := hex.EncodeToString(bytes)
-	return strings.ToLower(shortCode)
+	apiKey := hex.EncodeToString(bytes)
+	return strings.ToLower(apiKey)
 }

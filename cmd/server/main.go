@@ -1,7 +1,7 @@
 package main
 
 import (
-	"log"
+	"log/slog"
 	"os"
 
 	"github.com/gin-gonic/gin"
@@ -12,15 +12,19 @@ import (
 )
 
 func main() {
+	slogger := slog.New(slog.NewTextHandler(os.Stderr, nil))
+	logger := slog.NewLogLogger(slogger.Handler(), slog.LevelInfo)
+
 	db, err := bolt.Open("apikeys.db", 0600, nil)
 	if err != nil {
-		log.Fatal(err)
+		slogger.Error("failed to open database", "error", err)
+		os.Exit(1)
 	}
 	keyStore := security.NewKeyStore(db)
 	scg := security.GenerateShortCode
 	acg := security.GenerateAPIKey
 
-	server := api.NewServer(keyStore, scg, acg, os.Stdout)
+	server := api.NewServer(keyStore, scg, acg, os.Stdout, logger)
 
 	r := gin.Default()
 	server.SetupRoutes(r)

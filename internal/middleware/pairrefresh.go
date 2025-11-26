@@ -7,7 +7,11 @@ import (
 	"github.com/phasecurve/sway_rm/internal/security"
 )
 
-func PairRefresh(keyStore *security.KeyStore) gin.HandlerFunc {
+type Logger interface {
+	Printf(format string, v ...interface{})
+}
+
+func PairRefresh(keyStore security.KeyStorer, logger Logger) gin.HandlerFunc {
 	return func(ctx *gin.Context) {
 		apiKey, err := ctx.Cookie("api-key")
 		if err != nil {
@@ -27,7 +31,9 @@ func PairRefresh(keyStore *security.KeyStore) gin.HandlerFunc {
 		}
 
 		newExpiry := existingKey.TTL.Add(30 * time.Minute)
-		keyStore.StoreAPIKey(apiKey, newExpiry)
+		if err := keyStore.StoreAPIKey(apiKey, newExpiry); err != nil {
+			logger.Printf("failed to refresh API key TTL: %v", err)
+		}
 
 		ctx.Next()
 	}

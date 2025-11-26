@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -23,7 +24,7 @@ func fakeShortCodeGenerator() func() string {
 	return func() string { return "123456" }
 }
 
-func createTestKeyStore(t *testing.T) *security.KeyStore {
+func createTestKeyStore(t *testing.T) (*security.KeyStore, *bolt.DB) {
 	tempDir := t.TempDir()
 	dbPath := filepath.Join(tempDir, "test.db")
 	db, err := bolt.Open(dbPath, 0600, nil)
@@ -33,13 +34,19 @@ func createTestKeyStore(t *testing.T) *security.KeyStore {
 	t.Cleanup(func() {
 		db.Close()
 	})
-	return security.NewKeyStore(db)
+	return security.NewKeyStore(db), db
+}
+
+func createTestLogger() *log.Logger {
+	return log.New(os.Stderr, "", 0)
 }
 
 func TestStatus_NotPaired_Unauthorized(t *testing.T) {
 	router := gin.Default()
+	keyStore, _ := createTestKeyStore(t)
 	server := &Server{
-		KeyStore: createTestKeyStore(t),
+		KeyStore: keyStore,
+		Logger:   createTestLogger(),
 	}
 	server.SetupRoutes(router)
 	w := httptest.NewRecorder()
@@ -54,10 +61,12 @@ func TestStatus_NotPaired_Unauthorized(t *testing.T) {
 func TestRoot_ReturnsOK(t *testing.T) {
 	router := gin.Default()
 
+	keyStore, _ := createTestKeyStore(t)
 	server := &Server{
 		ShortCodeGenerator: fakeShortCodeGenerator(),
-		KeyStore:           createTestKeyStore(t),
+		KeyStore:           keyStore,
 		Output:             os.Stdout,
+		Logger:             createTestLogger(),
 	}
 	server.SetupRoutes(router)
 
@@ -70,10 +79,12 @@ func TestRoot_ReturnsOK(t *testing.T) {
 
 func TestRoot_NotPaired_ShowsForm(t *testing.T) {
 	router := gin.Default()
+	keyStore, _ := createTestKeyStore(t)
 	server := &Server{
 		ShortCodeGenerator: fakeShortCodeGenerator(),
-		KeyStore:           createTestKeyStore(t),
+		KeyStore:           keyStore,
 		Output:             os.Stdout,
+		Logger:             createTestLogger(),
 	}
 	server.SetupRoutes(router)
 
@@ -89,8 +100,10 @@ func TestRoot_NotPaired_ShowsForm(t *testing.T) {
 
 func TestRoot_NotPaired_DoesNotShowPaired(t *testing.T) {
 	router := gin.Default()
+	keyStore, _ := createTestKeyStore(t)
 	server := &Server{
-		KeyStore: createTestKeyStore(t),
+		Logger:   createTestLogger(),
+		KeyStore: keyStore,
 	}
 	server.SetupRoutes(router)
 
@@ -105,8 +118,10 @@ func TestRoot_NotPaired_DoesNotShowPaired(t *testing.T) {
 func TestPair_ValidShortCode_ReturnsAPIKey(t *testing.T) {
 	expectedKey := "123456"
 	router := gin.Default()
+	keyStore, _ := createTestKeyStore(t)
 	server := &Server{
-		KeyStore: createTestKeyStore(t),
+		Logger:   createTestLogger(),
+		KeyStore: keyStore,
 		APICodeGenerator: func() string {
 			return expectedKey
 		},
@@ -137,8 +152,9 @@ func TestPair_ValidShortCode_ReturnsAPIKey(t *testing.T) {
 
 func TestRoot_Paired_ShowPairedMessage(t *testing.T) {
 	router := gin.Default()
-	keyStore := createTestKeyStore(t)
+	keyStore, _ := createTestKeyStore(t)
 	server := &Server{
+		Logger:             createTestLogger(),
 		ShortCodeGenerator: fakeShortCodeGenerator(),
 		KeyStore:           keyStore,
 		pairingCodeExpiry:  time.Now().Add(1 * time.Hour),
@@ -165,8 +181,9 @@ func TestRoot_Paired_ShowPairedMessage(t *testing.T) {
 
 func TestRoot_ServerCookieTTLReached_ShowExpiredMessage(t *testing.T) {
 	router := gin.Default()
-	keyStore := createTestKeyStore(t)
+	keyStore, _ := createTestKeyStore(t)
 	server := &Server{
+		Logger:             createTestLogger(),
 		ShortCodeGenerator: fakeShortCodeGenerator(),
 		KeyStore:           keyStore,
 		Output:             os.Stdout,
@@ -193,8 +210,10 @@ func TestRoot_ServerCookieTTLReached_ShowExpiredMessage(t *testing.T) {
 
 func TestPair_InvalidShortCode_ShowsError(t *testing.T) {
 	router := gin.Default()
+	keyStore, _ := createTestKeyStore(t)
 	server := &Server{
-		KeyStore:         createTestKeyStore(t),
+		Logger:           createTestLogger(),
+		KeyStore:         keyStore,
 		APICodeGenerator: func() string { return "test-key" },
 	}
 	server.SetupRoutes(router)
@@ -216,12 +235,13 @@ func TestPair_InvalidShortCode_ShowsError(t *testing.T) {
 
 func TestValidateAndSaveAPIKey_ValidShortCode_CookieMatchesKeyStore(t *testing.T) {
 	apiKey := "an-api-code"
-	ks := createTestKeyStore(t)
+	ks, _ := createTestKeyStore(t)
 	validShortCode := "a-valid-short-code"
 	scg := func() string { return validShortCode }
 	acg := func() string { return apiKey }
 	router := gin.Default()
-	server := NewServer(ks, scg, acg, os.Stdout)
+	testLogger := log.New(os.Stderr, "", 0)
+	server := NewServer(ks, scg, acg, os.Stdout, testLogger)
 	server.currentPairingCode = validShortCode
 	server.SetupRoutes(router)
 
@@ -253,12 +273,14 @@ func TestValidateAndSaveAPIKey_ValidShortCode_CookieMatchesKeyStore(t *testing.T
 func TestRoot_NotPaired_DoesNotRegeneratePairingCodeIfAlreadySet(t *testing.T) {
 	router := gin.Default()
 	callCount := 0
+	keyStore, _ := createTestKeyStore(t)
 	server := &Server{
+		Logger: createTestLogger(),
 		ShortCodeGenerator: func() string {
 			callCount++
 			return fmt.Sprintf("code-%d", callCount)
 		},
-		KeyStore: createTestKeyStore(t),
+		KeyStore: keyStore,
 	}
 	server.currentPairingCode = "existing-code"
 	server.pairingCodeExpiry = time.Now().Add(1 * time.Hour)
@@ -275,12 +297,14 @@ func TestRoot_NotPaired_DoesNotRegeneratePairingCodeIfAlreadySet(t *testing.T) {
 func TestRoot_NotPaired_RegeneratesPairingCodeIfExpired(t *testing.T) {
 	router := gin.Default()
 	callCount := 0
+	keyStore, _ := createTestKeyStore(t)
 	server := &Server{
+		Logger: createTestLogger(),
 		ShortCodeGenerator: func() string {
 			callCount++
 			return fmt.Sprintf("code-%d", callCount)
 		},
-		KeyStore: createTestKeyStore(t),
+		KeyStore: keyStore,
 	}
 	server.currentPairingCode = "expired-code"
 	server.pairingCodeExpiry = time.Now().Add(-10 * time.Minute)
@@ -298,10 +322,11 @@ func TestRoot_NotPaired_RegeneratesPairingCodeIfExpired(t *testing.T) {
 
 func TestRoot_NotPaired_PrintsPairingCodeWhenGenerated(t *testing.T) {
 	router := gin.Default()
-	keyStore := createTestKeyStore(t)
+	keyStore, _ := createTestKeyStore(t)
 
 	var output bytes.Buffer
 	server := &Server{
+		Logger:             createTestLogger(),
 		ShortCodeGenerator: func() string { return "987654" },
 		KeyStore:           keyStore,
 		Output:             &output,
@@ -319,12 +344,13 @@ func TestRoot_NotPaired_PrintsPairingCodeWhenGenerated(t *testing.T) {
 
 func TestPair_ValidShortCode_InvalidatesPairingCode(t *testing.T) {
 	router := gin.Default()
-	keyStore := createTestKeyStore(t)
+	keyStore, _ := createTestKeyStore(t)
 	server := &Server{
 		ShortCodeGenerator: fakeShortCodeGenerator(),
 		APICodeGenerator:   func() string { return "test-api-key" },
 		KeyStore:           keyStore,
 		Output:             os.Stdout,
+		Logger:             createTestLogger(),
 	}
 	server.currentPairingCode = "single-use"
 	server.SetupRoutes(router)
@@ -372,11 +398,12 @@ func TestServer_HasShortCodeExpired_ReturnsTrueWhenExpired(t *testing.T) {
 
 func TestPairRefreshMiddleware_ValidAPIKey_ExtendsExpiryBy30Minutes(t *testing.T) {
 	router := gin.Default()
-	keyStore := createTestKeyStore(t)
+	keyStore, _ := createTestKeyStore(t)
 	server := &Server{
 		ShortCodeGenerator: fakeShortCodeGenerator(),
 		KeyStore:           keyStore,
 		pairingCodeExpiry:  time.Now().Add(1 * time.Hour),
+		Logger:             createTestLogger(),
 	}
 	server.SetupRoutes(router)
 
@@ -402,4 +429,111 @@ func TestPairRefreshMiddleware_ValidAPIKey_ExtendsExpiryBy30Minutes(t *testing.T
 	expectedExpiry := time.Now().Add(90 * time.Minute)
 	timeDelta := updatedKey.TTL.Sub(expectedExpiry).Abs()
 	assert.True(t, timeDelta < 2*time.Second, "expiry should be ~1.5 hours from now (initial 1h + refresh 30min)")
+}
+
+func TestPair_StoreAPIKeyFails_ReturnsInternalServerError(t *testing.T) {
+	router := gin.Default()
+	keyStore, db := createTestKeyStore(t)
+
+	server := &Server{
+		KeyStore:         keyStore,
+		APICodeGenerator: func() string { return "test-key" },
+		Logger:           createTestLogger(),
+	}
+	server.currentPairingCode = "valid-code"
+	server.SetupRoutes(router)
+
+	db.Close()
+
+	shortCode := url.Values{}
+	shortCode.Set("short-code", "valid-code")
+	encodedBody := strings.NewReader(shortCode.Encode())
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/pair", encodedBody)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code, "should return 500 when StoreAPIKey fails")
+}
+
+func TestPairRefreshMiddleware_DatabaseClosed_ContinuesGracefully(t *testing.T) {
+	router := gin.Default()
+	keyStore, db := createTestKeyStore(t)
+	server := &Server{
+		ShortCodeGenerator: fakeShortCodeGenerator(),
+		KeyStore:           keyStore,
+		pairingCodeExpiry:  time.Now().Add(1 * time.Hour),
+		Logger:             createTestLogger(),
+	}
+	server.SetupRoutes(router)
+
+	apiKey := "test-key"
+	initialExpiry := time.Now().Add(1 * time.Hour)
+	keyStore.StoreAPIKey(apiKey, initialExpiry)
+
+	db.Close()
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/status", nil)
+	req.AddCookie(&http.Cookie{
+		Name:  "api-key",
+		Value: apiKey,
+	})
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusUnauthorized, w.Code, "middleware should continue gracefully when DB is closed (GetAPIKey fails, returns 401)")
+}
+
+func TestPairRefreshMiddleware_StoreAPIKeyFails_LogsError(t *testing.T) {
+	var logOutput bytes.Buffer
+	testLogger := log.New(&logOutput, "", 0)
+
+	router := gin.Default()
+	realKeyStore, db := createTestKeyStore(t)
+
+	apiKey := "test-key"
+	initialExpiry := time.Now().Add(1 * time.Hour)
+	realKeyStore.StoreAPIKey(apiKey, initialExpiry)
+
+	wrappedKeyStore := &testKeyStoreWrapper{
+		KeyStore: realKeyStore,
+		onStoreAPIKey: func() {
+			db.Close()
+		},
+	}
+
+	server := &Server{
+		ShortCodeGenerator: fakeShortCodeGenerator(),
+		KeyStore:           wrappedKeyStore,
+		Logger:             testLogger,
+		pairingCodeExpiry:  time.Now().Add(1 * time.Hour),
+	}
+	server.SetupRoutes(router)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/status", nil)
+	req.AddCookie(&http.Cookie{
+		Name:  "api-key",
+		Value: apiKey,
+	})
+
+	router.ServeHTTP(w, req)
+
+	logContents := logOutput.String()
+	assert.Contains(t, logContents, "failed to refresh API key TTL", "should log error when StoreAPIKey fails")
+}
+
+type testKeyStoreWrapper struct {
+	*security.KeyStore
+	onStoreAPIKey func()
+}
+
+func (w *testKeyStoreWrapper) StoreAPIKey(apiKey string, expiresAt time.Time) error {
+	if w.onStoreAPIKey != nil {
+		w.onStoreAPIKey()
+	}
+	return w.KeyStore.StoreAPIKey(apiKey, expiresAt)
 }

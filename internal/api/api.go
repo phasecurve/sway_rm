@@ -29,7 +29,7 @@ type APICodeGenerator func() string
 func (s *Server) SetupRoutes(router *gin.Engine) {
 	api := router.Group("/")
 
-	api.Use(middleware.PairRefresh(s.KeyStore))
+	api.Use(middleware.PairRefresh(s.KeyStore, s.Logger))
 
 	api.GET("/", s.getRoot)
 	api.GET("/api/status", s.getStatus)
@@ -83,7 +83,11 @@ func (s *Server) postPair(c *gin.Context) {
 
 	apiKey := s.APICodeGenerator()
 
-	s.KeyStore.StoreAPIKey(apiKey, time.Now().Add(1*time.Hour))
+	if err := s.KeyStore.StoreAPIKey(apiKey, time.Now().Add(1*time.Hour)); err != nil {
+		c.Status(http.StatusInternalServerError)
+		return
+	}
+
 	c.SetCookie(apiKeyCookieName, apiKey, 3600, "/", "", false, true)
 	c.Header("Content-Type", "text/html")
 	c.String(http.StatusOK, "<p>Paired</p>")

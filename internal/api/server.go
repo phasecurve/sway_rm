@@ -9,21 +9,27 @@ import (
 	"github.com/phasecurve/sway_rm/internal/security"
 )
 
+type Logger interface {
+	Printf(format string, v ...interface{})
+}
+
 type Server struct {
 	ShortCodeGenerator ShortCodeGenerator
 	APICodeGenerator   APICodeGenerator
-	KeyStore           *security.KeyStore
+	KeyStore           security.KeyStorer
 	Output             io.Writer
+	Logger             Logger
 	currentPairingCode string
 	pairingCodeExpiry  time.Time
 }
 
-func NewServer(keyStore *security.KeyStore, shortCodeGenerator ShortCodeGenerator, apiCodeGenerator APICodeGenerator, outputWriter io.Writer) *Server {
+func NewServer(keyStore security.KeyStorer, shortCodeGenerator ShortCodeGenerator, apiCodeGenerator APICodeGenerator, outputWriter io.Writer, logger Logger) *Server {
 	return &Server{
 		ShortCodeGenerator: shortCodeGenerator,
 		APICodeGenerator:   apiCodeGenerator,
 		KeyStore:           keyStore,
 		Output:             outputWriter,
+		Logger:             logger,
 	}
 }
 
