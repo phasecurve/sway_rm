@@ -9,41 +9,22 @@ import (
 	"github.com/phasecurve/sway_rm/internal"
 	"github.com/phasecurve/sway_rm/internal/components"
 	"github.com/phasecurve/sway_rm/internal/middleware"
-	"github.com/phasecurve/sway_rm/internal/security"
 	"github.com/phasecurve/sway_rm/templates"
 )
 
 const (
 	apiKeyCookieName = "api-key"
 	shortCodeFormID  = "short-code"
+	hz               = "\u2550"
+	vr               = "\u2551"
+	tl               = "\u2554"
+	tr               = "\u2557"
+	bl               = "\u255A"
+	br               = "\u255D"
 )
 
 type ShortCodeGenerator func() string
 type APICodeGenerator func() string
-
-type Server struct {
-	ShortCodeGenerator ShortCodeGenerator
-	APICodeGenerator   APICodeGenerator
-	KeyStore           *security.KeyStore
-	currentPairingCode string
-	pairingCodeExpiry  time.Time
-}
-
-func (s *Server) GetCurrentPairingCode() string {
-	return s.currentPairingCode
-}
-
-func (s *Server) GetPairingCodeExpiry() time.Time {
-	return s.pairingCodeExpiry
-}
-
-func NewServer(keyStore *security.KeyStore, shortCodeGenerator ShortCodeGenerator, apiCodeGenerator APICodeGenerator) *Server {
-	return &Server{
-		ShortCodeGenerator: shortCodeGenerator,
-		APICodeGenerator:   apiCodeGenerator,
-		KeyStore:           keyStore,
-	}
-}
 
 func (s *Server) SetupRoutes(router *gin.Engine) {
 	api := router.Group("/")
@@ -68,9 +49,10 @@ func (s *Server) getRoot(c *gin.Context) {
 			break
 		}
 	}
-	if state != internal.StatePaired && (s.currentPairingCode == "" || s.pairingCodeExpiry.Before(time.Now())) {
-		s.currentPairingCode = s.ShortCodeGenerator()
-		s.pairingCodeExpiry = time.Now().Add(5 * time.Minute)
+	if state != internal.StatePaired && (!s.isShortCodeSet() || s.hasShortCodeExpired()) {
+		s.setNewShortCode()
+		s.setNewShortCodeExpiry()
+		s.publishShortCode()
 	}
 	component := templates.Launch(state)
 	component.Render(c.Request.Context(), c.Writer)
@@ -92,7 +74,7 @@ func (s *Server) getStatus(c *gin.Context) {
 func (s *Server) postPair(c *gin.Context) {
 	code := c.PostForm(shortCodeFormID)
 
-	if code != s.GetCurrentPairingCode() {
+	if code != s.getCurrentPairingCode() {
 		c.Header("Content-Type", "text/html")
 		component := components.PairFormWithError("Invalid pairing code. Please try again.")
 		component.Render(c.Request.Context(), c.Writer)
@@ -105,4 +87,5 @@ func (s *Server) postPair(c *gin.Context) {
 	c.SetCookie(apiKeyCookieName, apiKey, 3600, "/", "", false, true)
 	c.Header("Content-Type", "text/html")
 	c.String(http.StatusOK, "<p>Paired</p>")
+	s.resetPairingCode()
 }

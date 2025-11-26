@@ -1,10 +1,12 @@
 package api
 
 import (
+	"bytes"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -55,6 +57,7 @@ func TestRoot_ReturnsOK(t *testing.T) {
 	server := &Server{
 		ShortCodeGenerator: fakeShortCodeGenerator(),
 		KeyStore:           createTestKeyStore(t),
+		Output:             os.Stdout,
 	}
 	server.SetupRoutes(router)
 
@@ -70,6 +73,7 @@ func TestRoot_NotPaired_ShowsForm(t *testing.T) {
 	server := &Server{
 		ShortCodeGenerator: fakeShortCodeGenerator(),
 		KeyStore:           createTestKeyStore(t),
+		Output:             os.Stdout,
 	}
 	server.SetupRoutes(router)
 
@@ -165,6 +169,7 @@ func TestRoot_ServerCookieTTLReached_ShowExpiredMessage(t *testing.T) {
 	server := &Server{
 		ShortCodeGenerator: fakeShortCodeGenerator(),
 		KeyStore:           keyStore,
+		Output:             os.Stdout,
 	}
 	server.SetupRoutes(router)
 
@@ -216,7 +221,7 @@ func TestValidateAndSaveAPIKey_ValidShortCode_CookieMatchesKeyStore(t *testing.T
 	scg := func() string { return validShortCode }
 	acg := func() string { return apiKey }
 	router := gin.Default()
-	server := NewServer(ks, scg, acg)
+	server := NewServer(ks, scg, acg, os.Stdout)
 	server.currentPairingCode = validShortCode
 	server.SetupRoutes(router)
 
@@ -289,6 +294,80 @@ func TestRoot_NotPaired_RegeneratesPairingCodeIfExpired(t *testing.T) {
 	assert.Equal(t, "code-1", server.currentPairingCode, "should generate new code")
 	assert.Equal(t, 1, callCount, "generator should be called once for expired code")
 	assert.True(t, server.pairingCodeExpiry.After(time.Now()), "new code should have future expiry")
+}
+
+func TestRoot_NotPaired_PrintsPairingCodeWhenGenerated(t *testing.T) {
+	router := gin.Default()
+	keyStore := createTestKeyStore(t)
+
+	var output bytes.Buffer
+	server := &Server{
+		ShortCodeGenerator: func() string { return "987654" },
+		KeyStore:           keyStore,
+		Output:             &output,
+	}
+	server.SetupRoutes(router)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	router.ServeHTTP(w, req)
+
+	printed := output.String()
+	assert.Contains(t, printed, "987654", "should print the generated pairing code")
+	assert.Contains(t, printed, "Pairing code", "should include descriptive text")
+}
+
+func TestPair_ValidShortCode_InvalidatesPairingCode(t *testing.T) {
+	router := gin.Default()
+	keyStore := createTestKeyStore(t)
+	server := &Server{
+		ShortCodeGenerator: fakeShortCodeGenerator(),
+		APICodeGenerator:   func() string { return "test-api-key" },
+		KeyStore:           keyStore,
+		Output:             os.Stdout,
+	}
+	server.currentPairingCode = "single-use"
+	server.SetupRoutes(router)
+
+	shortCode := url.Values{}
+	shortCode.Set("short-code", "single-use")
+	encodedBody := strings.NewReader(shortCode.Encode())
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/pair", encodedBody)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code, "first pairing should succeed")
+	assert.Empty(t, server.currentPairingCode, "pairing code should be cleared after successful use")
+
+	w2 := httptest.NewRecorder()
+	encodedBody2 := strings.NewReader(shortCode.Encode())
+	req2, _ := http.NewRequest("POST", "/api/pair", encodedBody2)
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	router.ServeHTTP(w2, req2)
+
+	body := w2.Body.String()
+	assert.Contains(t, body, "Invalid pairing code", "second attempt with same code should fail")
+}
+
+func TestServer_IsShortCodeSet_ReturnsTrueWhenCodeExists(t *testing.T) {
+	server := &Server{}
+
+	assert.False(t, server.isShortCodeSet(), "should return false when code is empty")
+
+	server.currentPairingCode = "test-code"
+	assert.True(t, server.isShortCodeSet(), "should return true when code is set")
+}
+
+func TestServer_HasShortCodeExpired_ReturnsTrueWhenExpired(t *testing.T) {
+	server := &Server{}
+
+	server.pairingCodeExpiry = time.Now().Add(-1 * time.Minute)
+	assert.True(t, server.hasShortCodeExpired(), "should return true when expired")
+
+	server.pairingCodeExpiry = time.Now().Add(1 * time.Minute)
+	assert.False(t, server.hasShortCodeExpired(), "should return false when not expired")
 }
 
 func TestPairRefreshMiddleware_ValidAPIKey_ExtendsExpiryBy30Minutes(t *testing.T) {
