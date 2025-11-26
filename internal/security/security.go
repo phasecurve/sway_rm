@@ -1,7 +1,10 @@
 package security
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 
 	bolt "go.etcd.io/bbolt"
@@ -83,4 +86,11 @@ func (k *KeyStore) StoreAPIKey(apiKey string, expiresAt time.Time) error {
 		}
 		return b.Put([]byte(apiKey), expiresAtBin)
 	})
+}
+
+func generateShortCode() string {
+	bytes := make([]byte, 3)
+	rand.Read(bytes)
+	shortCode := hex.EncodeToString(bytes)
+	return strings.ToUpper(shortCode)
 }
