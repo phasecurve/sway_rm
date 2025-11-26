@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -15,6 +16,10 @@ import (
 
 	"github.com/phasecurve/sway_rm/internal/security"
 )
+
+func fakeShortCodeGenerator() func() string {
+	return func() string { return "123456" }
+}
 
 func createTestKeyStore(t *testing.T) *security.KeyStore {
 	tempDir := t.TempDir()
@@ -46,8 +51,10 @@ func TestStatus_NotPaired_Unauthorized(t *testing.T) {
 
 func TestRoot_ReturnsOK(t *testing.T) {
 	router := gin.Default()
+
 	server := &Server{
-		KeyStore: createTestKeyStore(t),
+		ShortCodeGenerator: fakeShortCodeGenerator(),
+		KeyStore:           createTestKeyStore(t),
 	}
 	server.SetupRoutes(router)
 
@@ -61,7 +68,8 @@ func TestRoot_ReturnsOK(t *testing.T) {
 func TestRoot_NotPaired_ShowsForm(t *testing.T) {
 	router := gin.Default()
 	server := &Server{
-		KeyStore: createTestKeyStore(t),
+		ShortCodeGenerator: fakeShortCodeGenerator(),
+		KeyStore:           createTestKeyStore(t),
 	}
 	server.SetupRoutes(router)
 
@@ -100,6 +108,7 @@ func TestPair_ValidShortCode_ReturnsAPIKey(t *testing.T) {
 		},
 	}
 	server.SetupRoutes(router)
+	server.currentPairingCode = "123456"
 
 	w := httptest.NewRecorder()
 	shortCode := url.Values{}
@@ -126,7 +135,9 @@ func TestRoot_Paired_ShowPairedMessage(t *testing.T) {
 	router := gin.Default()
 	keyStore := createTestKeyStore(t)
 	server := &Server{
-		KeyStore: keyStore,
+		ShortCodeGenerator: fakeShortCodeGenerator(),
+		KeyStore:           keyStore,
+		pairingCodeExpiry:  time.Now().Add(1 * time.Hour),
 	}
 	server.SetupRoutes(router)
 
@@ -152,7 +163,8 @@ func TestRoot_ServerCookieTTLReached_ShowExpiredMessage(t *testing.T) {
 	router := gin.Default()
 	keyStore := createTestKeyStore(t)
 	server := &Server{
-		KeyStore: keyStore,
+		ShortCodeGenerator: fakeShortCodeGenerator(),
+		KeyStore:           keyStore,
 	}
 	server.SetupRoutes(router)
 
@@ -195,4 +207,120 @@ func TestPair_InvalidShortCode_ShowsError(t *testing.T) {
 	body := w.Body.String()
 	assert.Contains(t, body, "Invalid pairing code", "should show error message")
 	assert.Contains(t, body, `<form id="pair-form"`, "should show form again")
+}
+
+func TestValidateAndSaveAPIKey_ValidShortCode_CookieMatchesKeyStore(t *testing.T) {
+	apiKey := "an-api-code"
+	ks := createTestKeyStore(t)
+	validShortCode := "a-valid-short-code"
+	scg := func() string { return validShortCode }
+	acg := func() string { return apiKey }
+	router := gin.Default()
+	server := NewServer(ks, scg, acg)
+	server.currentPairingCode = validShortCode
+	server.SetupRoutes(router)
+
+	shortCode := url.Values{}
+	shortCode.Set("short-code", validShortCode)
+	encodedBody := strings.NewReader(shortCode.Encode())
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("POST", "/api/pair", encodedBody)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	router.ServeHTTP(w, req)
+	apiKeyInKs, err := ks.GetAPIKey(apiKey)
+	if err != nil {
+		assert.Fail(t, "api key not in the key store")
+	}
+	var cookie *http.Cookie
+	for _, c := range w.Result().Cookies() {
+		if c.Name == apiKeyCookieName {
+			cookie = c
+			break
+		}
+	}
+
+	assert.NotNil(t, apiKeyInKs)
+	assert.Equal(t, apiKeyInKs.Key, cookie.Value, "cookie should be same value as stored in keystore")
+}
+
+func TestRoot_NotPaired_DoesNotRegeneratePairingCodeIfAlreadySet(t *testing.T) {
+	router := gin.Default()
+	callCount := 0
+	server := &Server{
+		ShortCodeGenerator: func() string {
+			callCount++
+			return fmt.Sprintf("code-%d", callCount)
+		},
+		KeyStore: createTestKeyStore(t),
+	}
+	server.currentPairingCode = "existing-code"
+	server.pairingCodeExpiry = time.Now().Add(1 * time.Hour)
+	server.SetupRoutes(router)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, "existing-code", server.currentPairingCode, "should not regenerate pairing code if already set")
+	assert.Equal(t, 0, callCount, "generator should not be called if code already exists")
+}
+
+func TestRoot_NotPaired_RegeneratesPairingCodeIfExpired(t *testing.T) {
+	router := gin.Default()
+	callCount := 0
+	server := &Server{
+		ShortCodeGenerator: func() string {
+			callCount++
+			return fmt.Sprintf("code-%d", callCount)
+		},
+		KeyStore: createTestKeyStore(t),
+	}
+	server.currentPairingCode = "expired-code"
+	server.pairingCodeExpiry = time.Now().Add(-10 * time.Minute)
+	server.SetupRoutes(router)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/", nil)
+	router.ServeHTTP(w, req)
+
+	assert.NotEqual(t, "expired-code", server.currentPairingCode, "should regenerate expired pairing code")
+	assert.Equal(t, "code-1", server.currentPairingCode, "should generate new code")
+	assert.Equal(t, 1, callCount, "generator should be called once for expired code")
+	assert.True(t, server.pairingCodeExpiry.After(time.Now()), "new code should have future expiry")
+}
+
+func TestPairRefreshMiddleware_ValidAPIKey_ExtendsExpiryBy30Minutes(t *testing.T) {
+	router := gin.Default()
+	keyStore := createTestKeyStore(t)
+	server := &Server{
+		ShortCodeGenerator: fakeShortCodeGenerator(),
+		KeyStore:           keyStore,
+		pairingCodeExpiry:  time.Now().Add(1 * time.Hour),
+	}
+	server.SetupRoutes(router)
+
+	apiKey := "sliding-window-key"
+	initialExpiry := time.Now().Add(1 * time.Hour)
+	keyStore.StoreAPIKey(apiKey, initialExpiry)
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("GET", "/api/status", nil)
+	req.AddCookie(&http.Cookie{
+		Name:  "api-key",
+		Value: apiKey,
+	})
+
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusOK, w.Code, "should return OK for valid API key")
+
+	updatedKey, err := keyStore.GetAPIKey(apiKey)
+	assert.NoError(t, err, "should retrieve API key from store")
+	assert.NotNil(t, updatedKey)
+
+	expectedExpiry := time.Now().Add(90 * time.Minute)
+	timeDelta := updatedKey.TTL.Sub(expectedExpiry).Abs()
+	assert.True(t, timeDelta < 2*time.Second, "expiry should be ~1.5 hours from now (initial 1h + refresh 30min)")
 }

@@ -1,8 +1,10 @@
 PHONY: build, fmt, test, templ, tidy
 build:
+	go fmt ./...
 	go build ./...
 
 run:
+	go fmt ./...
 	go run cmd/server/main.go
 
 fmt:
@@ -16,4 +18,5 @@ templ:
 	templ generate
 
 tidy:
+	go fmt ./...
 	go mod tidy
