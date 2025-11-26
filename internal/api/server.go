@@ -3,7 +3,7 @@ package api
 import (
 	"fmt"
 	"io"
-	"strings"
+	"os"
 	"time"
 
 	"github.com/phasecurve/sway_rm/internal/security"
@@ -23,14 +23,48 @@ type Server struct {
 	pairingCodeExpiry  time.Time
 }
 
-func NewServer(keyStore security.KeyStorer, shortCodeGenerator ShortCodeGenerator, apiCodeGenerator APICodeGenerator, outputWriter io.Writer, logger Logger) *Server {
-	return &Server{
-		ShortCodeGenerator: shortCodeGenerator,
-		APICodeGenerator:   apiCodeGenerator,
-		KeyStore:           keyStore,
-		Output:             outputWriter,
-		Logger:             logger,
+type ServerOption func(*Server)
+
+func WithKeyStore(keyStore security.KeyStorer) ServerOption {
+	return func(s *Server) {
+		s.KeyStore = keyStore
 	}
+}
+
+func WithShortCodeGenerator(gen ShortCodeGenerator) ServerOption {
+	return func(s *Server) {
+		s.ShortCodeGenerator = gen
+	}
+}
+
+func WithAPICodeGenerator(gen APICodeGenerator) ServerOption {
+	return func(s *Server) {
+		s.APICodeGenerator = gen
+	}
+}
+
+func WithOutput(output io.Writer) ServerOption {
+	return func(s *Server) {
+		s.Output = output
+	}
+}
+
+func WithLogger(logger Logger) ServerOption {
+	return func(s *Server) {
+		s.Logger = logger
+	}
+}
+
+func NewServer(opts ...ServerOption) *Server {
+	s := &Server{
+		ShortCodeGenerator: security.GenerateShortCode,
+		APICodeGenerator:   security.GenerateAPIKey,
+		Output:             os.Stdout,
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	return s
 }
 
 func (s *Server) resetPairingCode() {
@@ -38,7 +72,13 @@ func (s *Server) resetPairingCode() {
 }
 
 func (s *Server) publishShortCode() {
-	fmt.Fprintf(s.Output, "\n\n\t\t%s%s%s\n\t\t%s Pairing code: %s %s\n\t\t%s%s%s\n\n", tl, strings.Repeat(hz, 22), tr, vr, s.getCurrentPairingCode(), vr, bl, strings.Repeat(hz, 22), br)
+	fmt.Fprintf(s.Output, `
+
+		╔════════════════════════╗
+		║  Pairing code: %s  ║
+		╚════════════════════════╝
+
+`, s.getCurrentPairingCode())
 }
 
 func (s *Server) setNewShortCodeExpiry() {

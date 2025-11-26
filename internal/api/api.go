@@ -15,12 +15,6 @@ import (
 const (
 	apiKeyCookieName = "api-key"
 	shortCodeFormID  = "short-code"
-	hz               = "\u2550"
-	vr               = "\u2551"
-	tl               = "\u2554"
-	tr               = "\u2557"
-	bl               = "\u255A"
-	br               = "\u255D"
 )
 
 type ShortCodeGenerator func() string

@@ -241,7 +241,13 @@ func TestValidateAndSaveAPIKey_ValidShortCode_CookieMatchesKeyStore(t *testing.T
 	acg := func() string { return apiKey }
 	router := gin.Default()
 	testLogger := log.New(os.Stderr, "", 0)
-	server := NewServer(ks, scg, acg, os.Stdout, testLogger)
+	server := NewServer(
+		WithKeyStore(ks),
+		WithShortCodeGenerator(scg),
+		WithAPICodeGenerator(acg),
+		WithOutput(os.Stdout),
+		WithLogger(testLogger),
+	)
 	server.currentPairingCode = validShortCode
 	server.SetupRoutes(router)
 

@@ -24,7 +24,13 @@ func main() {
 	scg := security.GenerateShortCode
 	acg := security.GenerateAPIKey
 
-	server := api.NewServer(keyStore, scg, acg, os.Stdout, logger)
+	server := api.NewServer(
+		api.WithKeyStore(keyStore),
+		api.WithShortCodeGenerator(scg),
+		api.WithAPICodeGenerator(acg),
+		api.WithOutput(os.Stdout),
+		api.WithLogger(logger),
+	)
 
 	r := gin.Default()
 	server.SetupRoutes(r)
