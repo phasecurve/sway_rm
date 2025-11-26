@@ -7,13 +7,13 @@ import (
 )
 
 func TestGenerateShortCode_Returns6Characters(t *testing.T) {
-	code := generateShortCode()
+	code := GenerateShortCode()
 
 	assert.Len(t, code, 6, "should return 6-character code")
 }
 
 func TestGenerateShortCode_ContainsOnlyValidHexCharacters(t *testing.T) {
-	code := generateShortCode()
+	code := GenerateShortCode()
 
 	validChars := "0123456789ABCDEF"
 	for _, char := range code {
@@ -22,7 +22,7 @@ func TestGenerateShortCode_ContainsOnlyValidHexCharacters(t *testing.T) {
 }
 
 func TestGenerateShortCode_IsUppercase(t *testing.T) {
-	code := generateShortCode()
+	code := GenerateShortCode()
 
 	for _, char := range code {
 		if char >= 'A' && char <= 'F' {
@@ -41,7 +41,7 @@ func TestGenerateShortCode_GeneratesDifferentCodes(t *testing.T) {
 	codes := make(map[string]bool)
 
 	for i := 0; i < 100; i++ {
-		code := generateShortCode()
+		code := GenerateShortCode()
 		codes[code] = true
 	}
 
@@ -52,7 +52,7 @@ func TestGenerateShortCode_NoInvalidCharacters(t *testing.T) {
 	invalidChars := []string{"G", "H", "J", "Z", "g", "h", "j", "z", "!", "@", " "}
 
 	for i := 0; i < 20; i++ {
-		code := generateShortCode()
+		code := GenerateShortCode()
 		for _, invalid := range invalidChars {
 			assert.NotContains(t, code, invalid, "should not contain invalid character: %s", invalid)
 		}

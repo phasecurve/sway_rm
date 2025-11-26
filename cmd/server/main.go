@@ -17,7 +17,7 @@ func main() {
 		log.Fatal(err)
 	}
 	keyStore := security.NewKeyStore(db)
-	scg := func() string { return "123abc" }
+	scg := security.GenerateShortCode
 	acg := func() string { return "1234567890" }
 
 	server := api.NewServer(keyStore, scg, acg, os.Stdout)

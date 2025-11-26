@@ -88,7 +88,7 @@ func (k *KeyStore) StoreAPIKey(apiKey string, expiresAt time.Time) error {
 	})
 }
 
-func generateShortCode() string {
+func GenerateShortCode() string {
 	bytes := make([]byte, 3)
 	rand.Read(bytes)
 	shortCode := hex.EncodeToString(bytes)
