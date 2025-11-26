@@ -18,7 +18,7 @@ func main() {
 	}
 	keyStore := security.NewKeyStore(db)
 	scg := security.GenerateShortCode
-	acg := func() string { return "1234567890" }
+	acg := security.GenerateAPIKey
 
 	server := api.NewServer(keyStore, scg, acg, os.Stdout)
 

@@ -94,3 +94,10 @@ func GenerateShortCode() string {
 	shortCode := hex.EncodeToString(bytes)
 	return strings.ToUpper(shortCode)
 }
+
+func GenerateAPIKey() string {
+	bytes := make([]byte, 6)
+	rand.Read(bytes)
+	shortCode := hex.EncodeToString(bytes)
+	return strings.ToLower(shortCode)
+}

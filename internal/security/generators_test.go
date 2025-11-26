@@ -58,3 +58,45 @@ func TestGenerateShortCode_NoInvalidCharacters(t *testing.T) {
 		}
 	}
 }
+
+func TestGenerateAPIKey_Returns12Characters(t *testing.T) {
+	key := GenerateAPIKey()
+
+	assert.Len(t, key, 12, "should return 12-character key")
+}
+
+func TestGenerateAPIKey_ContainsOnlyValidHexCharacters(t *testing.T) {
+	key := GenerateAPIKey()
+
+	validChars := "0123456789abcdef"
+	for _, char := range key {
+		assert.Contains(t, validChars, string(char), "should only contain valid lowercase hex characters (0-9, a-f)")
+	}
+}
+
+func TestGenerateAPIKey_IsLowercase(t *testing.T) {
+	key := GenerateAPIKey()
+
+	for _, char := range key {
+		if char >= 'a' && char <= 'f' {
+			assert.True(t, char >= 'a' && char <= 'f', "letters should be lowercase")
+		}
+	}
+	assert.NotContains(t, key, "A", "should not contain uppercase A")
+	assert.NotContains(t, key, "B", "should not contain uppercase B")
+	assert.NotContains(t, key, "C", "should not contain uppercase C")
+	assert.NotContains(t, key, "D", "should not contain uppercase D")
+	assert.NotContains(t, key, "E", "should not contain uppercase E")
+	assert.NotContains(t, key, "F", "should not contain uppercase F")
+}
+
+func TestGenerateAPIKey_NoInvalidCharacters(t *testing.T) {
+	invalidChars := []string{"G", "H", "J", "Z", "g", "h", "j", "z", "!", "@", " "}
+
+	for i := 0; i < 20; i++ {
+		key := GenerateAPIKey()
+		for _, invalid := range invalidChars {
+			assert.NotContains(t, key, invalid, "should not contain invalid character: %s", invalid)
+		}
+	}
+}
